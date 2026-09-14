@@ -1,0 +1,77 @@
+[project]
+name = "csgpy"
+version = "0.1.0"
+description = "Lazy constructive solid geometry (primitives, booleans, extrude/revolve/sweep) for Python, backed by Rust (csgrs + PyO3)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Fabio Villavicencio", email = "favm72@gmail.com" }]
+keywords = ["csg", "geometry", "3d", "cad", "mesh"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Rust",
+    "Topic :: Multimedia :: Graphics :: 3D Modeling",
+    "Topic :: Scientific/Engineering",
+    "Typing :: Typed",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/favm72/csgpy"
+Repository = "https://github.com/favm72/csgpy"
+Documentation = "https://github.com/favm72/csgpy#readme"
+Issues = "https://github.com/favm72/csgpy/issues"
+Examples = "https://github.com/favm72/csgpy/tree/main/examples"
+
+# Each render backend is an extra: the core package (building/evaluating a
+# lazy CSG tree) stays dependency-free, and `pip install csgpy[pyvista]`
+# opts into `csgpy.pyvista` specifically. A future backend (e.g. pyrender)
+# would get its own `csgpy.<backend>` module and its own extra here,
+# without pulling in every other backend's dependencies.
+[project.optional-dependencies]
+pyvista = ["pyvista>=0.44", "numpy>=1.26"]
+
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+# Path to the Cargo.toml of the Rust crate that builds the extension module.
+manifest-path = "Cargo.toml"
+# Mixed layout: python/csgpy/ holds __init__.py + the .pyi stub + py.typed;
+# maturin drops the compiled csgpy.csgpy submodule (.pyd/.so) in alongside them.
+python-source = "python"
+# abi3-py310: build against Python's *stable* ABI, so one wheel per platform
+# (tagged cp310-abi3) installs on every CPython from 3.10 up, 3.14 included,
+# instead of one wheel per Python version.
+features = ["pyo3/extension-module", "pyo3/abi3-py310"]
+
+[dependency-groups]
+# maturin builds the package. csgpy[pyvista] (above) is what actually
+# declares the pyvista/numpy version constraints; listing the extra here
+# too just makes `uv sync` install it for local dev, e.g. to run
+# main.py/house.py.
+dev = ["maturin>=1.7,<2.0", "csgpy[pyvista]"]
+
+[tool.uv]
+# uv only rebuilds the project when these change - by default just
+# pyproject.toml, so after editing Rust code `uv run` would reinstall a
+# stale cached build of the extension.
+cache-keys = [{ file = "pyproject.toml" }, { file = "Cargo.toml" }, { file = "src/**/*.rs" }]
+
+[tool.ruff]
+# __init__.pyi is rewritten wholesale by `cargo run --bin stub_gen` (see
+# src/bin/stub_gen.rs) - hand-fixing lint in it would just get overwritten,
+# so it's excluded here instead.
+extend-exclude = ["python/csgpy/__init__.pyi"]

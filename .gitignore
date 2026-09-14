@@ -1,0 +1,22 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Rust build output
+/target
+
+# Compiled extension module dropped into the python package dir by
+# `maturin develop`/`cargo build` -- rebuilt per-platform, not source.
+python/csgpy/*.pyd
+python/csgpy/*.so
+python/csgpy/*.dll
+python/csgpy/*.dylib
+# ...and its Windows debug symbols.
+*.pdb

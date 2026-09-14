@@ -1,0 +1,119 @@
+# Builds csgpy wheels for Linux, macOS and Windows plus an sdist, tests the
+# wheels on every supported Python, and - only for a pushed `v*` tag -
+# publishes them to PyPI.
+#
+# The extension is built against Python's stable ABI (`abi3-py310`, see
+# pyproject.toml), so each platform needs just ONE wheel, tagged
+# cp310-abi3, which installs on CPython 3.10, 3.11, 3.12, 3.13, 3.14, ...
+#
+# Releasing: bump `version` in pyproject.toml and Cargo.toml, commit, then
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# One-time PyPI setup (no API token needed - "trusted publishing"):
+#   pypi.org -> Your account -> Publishing -> Add a new pending publisher
+#   owner: favm72, repository: csgpy, workflow: release.yml, environment: pypi
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wheels:
+    name: Wheel ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x86_64, runner: ubuntu-latest, target: x86_64, manylinux: auto }
+          - { name: linux-aarch64, runner: ubuntu-latest, target: aarch64, manylinux: auto }
+          - { name: linux-musl-x86_64, runner: ubuntu-latest, target: x86_64, manylinux: musllinux_1_2 }
+          - { name: windows-x64, runner: windows-latest, target: x64 }
+          - { name: macos-arm64, runner: macos-latest, target: aarch64 }
+          - { name: macos-x86_64, runner: macos-latest, target: x86_64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          args: --release --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.name }}
+          path: dist/*.whl
+
+  sdist:
+    name: Source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  test:
+    name: Test ${{ matrix.os }} / Python ${{ matrix.python }}
+    needs: wheels
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - name: Install the wheel for this platform
+        shell: bash
+        # --find-links + --no-index for csgpy itself picks the one wheel in
+        # dist/ matching this OS/CPU. The pyvista extra comes from PyPI; if
+        # VTK has no wheel yet for a brand-new Python, the smoke test skips
+        # the renderer checks rather than failing the core ones.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --only-binary csgpy --no-index --find-links dist csgpy
+          python -m pip install "pyvista>=0.44" "numpy>=1.26" \
+            || echo "::warning::pyvista unavailable on Python ${{ matrix.python }} - renderer checks skipped"
+      - name: Smoke test
+        run: python tests/smoke_test.py
+
+  publish:
+    name: Publish to PyPI
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [wheels, sdist, test]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/csgpy/
+    permissions:
+      id-token: write # trusted publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1

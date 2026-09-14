@@ -1,0 +1,70 @@
+[package]
+name = "csgpy"
+version = "0.1.0"
+edition = "2021"
+
+# The compiled artifact is a "cdylib" (C-compatible dynamic library) so Python
+# can dlopen() it, but we also keep "rlib" so the crate is usable/testable
+# as an ordinary Rust library.
+[lib]
+name = "csgpy"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = { version = "0.27" }
+pyo3-stub-gen = "0.23.0"
+csgrs = { version = "=0.20.1", default-features = false, features = ["f64", "stl-io", "delaunay"] }
+# Only for building Point3/Vector3 args to pass into csgrs's sweep/revolve/
+# extrude_vector - kept in lockstep with whatever version csgrs itself pulls
+# in (checked via Cargo.lock), not an independently-chosen version.
+nalgebra = "0.33.3"
+# Same deal for building the open poly-line geometry of an unclosed
+# `bspline()` - the version csgrs's `geo` dependency already uses.
+geo-types = "0.7.20"
+# 3D booleans. csgrs's own are BSP-tree based, which on finely tessellated
+# curved input (sphere - box) needs memory quadratic in the face count and
+# can exhaust RAM. This is a pure-Rust port of Manifold (the kernel OpenSCAD
+# switched to) - linear memory, no deep recursion, no C++/CMake build step.
+manifold-rust = "0.13.1"
+
+# "extension-module" must be OFF when building the stub_gen binary below
+# (it can't link like a normal executable with that feature on), so it
+# lives behind our own default feature instead of being hardcoded onto the
+# pyo3 dependency. `maturin develop`/`maturin build` use default features
+# (module gets it); `cargo run --bin stub_gen --no-default-features` doesn't.
+[features]
+default = ["pyo3/extension-module"]
+
+# A separate binary that gathers the #[gen_stub_*] metadata declared in
+# lib.rs and writes csgpy.pyi next to it.
+[[bin]]
+name = "stub_gen"
+path = "src/bin/stub_gen.rs"
+
+[profile.release]
+lto = true
+
+# `maturin develop` builds the dev profile by default, where the geometry
+# crates run 10-50x slower than in release - slow enough that a big boolean
+# looks hung. Optimize every dependency even in dev builds; our own crate
+# stays quick to recompile.
+[profile.dev.package."*"]
+opt-level = 3
+
+# `csgrs` depends directly on `core2 = "0.4"`, but every published version of
+# core2 has since been yanked from crates.io (the crate is deprecated) and
+# there's no unyanked replacement. Point Cargo at the last commit in the
+# upstream repo that still has real source (the one before it was hollowed
+# out to just a README), still tagged as version 0.4.0, so it satisfies
+# csgrs's requirement.
+[patch.crates-io]
+core2 = { git = "https://github.com/bbqsrc/core2", rev = "545e84bcb0f235b12e21351e0c69767958efe2a7" }
+
+
+# For the process memory cap (see `memory_limit` in lib.rs): a Job Object on
+# Windows, RLIMIT_DATA on Unix.
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_SystemInformation"] }
+
+[target."cfg(unix)".dependencies]
+libc = "0.2.189"
